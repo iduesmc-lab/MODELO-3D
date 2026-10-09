@@ -92,10 +92,10 @@ def hair(size=512, seed=7):
     for x in range(size):
         u = x / size
         purple = u < 0.5
-        hl = (120, 80, 215) if purple else (60, 150, 235)
+        hl = (112, 76, 205) if purple else (70, 120, 210)
         uu = (u % 0.5) * 2
         center = 0.42 + 0.06 * math.sin(uu * math.pi * 6) + 0.03 * math.sin(uu * 31)
-        width = 0.13 + 0.05 * math.sin(uu * 17 + 1)
+        width = 0.09 + 0.04 * math.sin(uu * 17 + 1)
         for y in range(size):
             v = 1 - y / size  # PIL y=0 arriba -> v=1
             c = lerp(base_root, base_tip, v)
