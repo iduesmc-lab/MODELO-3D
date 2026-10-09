@@ -1,20 +1,421 @@
-"""Construye el VTuber chibi gamer (VRM 0.0) y su silla gamer (GLB).
-
-Uso:  python3 tools/build_model.py
-Genera:  modelo/chibi_gamer.vrm  y  modelo/silla_gamer.glb
 """
+CHIBI GAMER - modelo VTuber generado 100% por código dentro de Blender
+=======================================================================
+
+CÓMO USARLO
+1. Abre Blender (4.2 o más nuevo; probado con 5.2).
+2. Ve a la pestaña "Scripting" (arriba).
+3. En el editor de texto pulsa "+ New", pega TODO este archivo.
+4. Pulsa "Run Script" (botón ▶ o Alt+P). Tarda unos 10-30 segundos.
+5. Mira el resultado en la vista 3D en modo "Rendered" (Z → Rendered) o con F12.
+
+QUÉ CREA (en la colección "ChibiGamer"; si la vuelves a ejecutar, la reemplaza)
+- ChibiGamer (esqueleto humanoide con nombres tipo VRM: Hips, Spine, Head, ...)
+- ChibiGamer_Face / _Body / _Hair / _Accessories (mallas con pesos y materiales toon)
+- Shape keys de expresiones en ChibiGamer_Face: Blink_L, Blink_R, A, I, U, E, O,
+  Joy, Angry, Sorrow, Fun, Surprised
+- ChibiGamer_Silla (silla gamer), cámara y luz
+- Contorno negro de cómic (modificador "Contorno" = Solidify invertido)
+
+OPCIONES (cámbialas aquí abajo antes de ejecutar)
+"""
+SENTADO = True     # True: pose sentado en la silla como en la referencia. False: pose T.
+CON_SILLA = True   # incluir la silla gamer
+GROSOR_CONTORNO = 1.8   # multiplicador del grosor de la línea negra de cómic
+QUITAR_OBJETOS_INICIALES = True  # borra el "Cube", "Camera" y "Light" de la escena nueva
+
+# =====================================================================================
+#  GEOMETRÍA PROCEDURAL
+# =====================================================================================
+import numpy as np
+
+
+def normalize(v):
+    v = np.asarray(v, float)
+    n = np.linalg.norm(v, axis=-1, keepdims=True)
+    return v / np.where(n < 1e-12, 1.0, n)
+
+
+def grid_faces(nu, nv, wrap_u=False):
+    """Triángulos para una rejilla de (nu+1) x (nv+1) vértices (índice i*(nv+1)+j)."""
+    faces = []
+    W = nv + 1
+    for i in range(nu):
+        for j in range(nv):
+            a = i * W + j
+            b = (i + 1) * W + j
+            faces.append((a, b, a + 1))
+            faces.append((a + 1, b, b + 1))
+    return np.array(faces, dtype=np.int64)
+
+
+class Part:
+    """Un trozo de malla con un material. Se agrupan en mallas al exportar."""
+
+    def __init__(self, pos, idx, uv=None, mat="Default", mesh="Body", nrm=None):
+        self.pos = np.asarray(pos, float).reshape(-1, 3)
+        self.idx = np.asarray(idx, np.int64).reshape(-1, 3)
+        n = len(self.pos)
+        self.uv = np.zeros((n, 2)) if uv is None else np.asarray(uv, float).reshape(-1, 2)
+        self.nrm = nrm
+        self.mat = mat
+        self.mesh = mesh
+        self.joints = None   # (n,4) nombres -> se resuelven al exportar
+        self.weights = None  # (n,4)
+        self.morph = {}      # nombre -> (n,3) deltas
+
+    def copy(self):
+        p = Part(self.pos.copy(), self.idx.copy(), self.uv.copy(), self.mat, self.mesh,
+                 None if self.nrm is None else self.nrm.copy())
+        if self.joints is not None:
+            p.joints = [list(j) for j in self.joints]
+            p.weights = self.weights.copy()
+        p.morph = {k: v.copy() for k, v in self.morph.items()}
+        return p
+
+    def flip_faces(self):
+        self.idx = self.idx[:, ::-1].copy()
+        return self
+
+    def transform(self, M):
+        """Aplica matriz 4x4 (rotación+traslación) a posiciones/normales."""
+        R = M[:3, :3]
+        self.pos = self.pos @ R.T + M[:3, 3]
+        if self.nrm is not None:
+            self.nrm = normalize(self.nrm @ R.T)
+        for k in self.morph:
+            self.morph[k] = self.morph[k] @ R.T
+        return self
+
+    def mirror_x(self):
+        p = self.copy()
+        p.pos[:, 0] *= -1
+        if p.nrm is not None:
+            p.nrm[:, 0] *= -1
+        for k in p.morph:
+            p.morph[k][:, 0] *= -1
+        p.flip_faces()
+        return p
+
+
+def smooth_normals(pos, idx):
+    """Normales suaves soldando vértices con la misma posición (evita grietas del contorno)."""
+    key = np.round(pos / 1e-5).astype(np.int64)
+    _, inv = np.unique(key, axis=0, return_inverse=True)
+    inv = inv.reshape(-1)
+    a, b, c = pos[idx[:, 0]], pos[idx[:, 1]], pos[idx[:, 2]]
+    fn = np.cross(b - a, c - a)
+    acc = np.zeros((inv.max() + 1, 3))
+    for k in range(3):
+        np.add.at(acc, inv[idx[:, k]], fn)
+    n = normalize(acc[inv])
+    bad = np.linalg.norm(n, axis=1) < 0.5
+    n[bad] = [0, 1, 0]
+    return n
+
+
+def merge(parts, mat=None, mesh=None):
+    pos, idx, uv, off = [], [], [], 0
+    for p in parts:
+        pos.append(p.pos); uv.append(p.uv); idx.append(p.idx + off); off += len(p.pos)
+    out = Part(np.vstack(pos), np.vstack(idx), np.vstack(uv),
+               mat or parts[0].mat, mesh or parts[0].mesh)
+    return out
+
+
+# ---------------------------------------------------------------- matrices
+def rot_x(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[1, 0, 0, 0], [0, c, -s, 0], [0, s, c, 0], [0, 0, 0, 1.0]])
+
+
+def rot_y(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[c, 0, s, 0], [0, 1, 0, 0], [-s, 0, c, 0], [0, 0, 0, 1.0]])
+
+
+def rot_z(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[c, -s, 0, 0], [s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1.0]])
+
+
+def trans(t):
+    M = np.eye(4); M[:3, 3] = t
+    return M
+
+
+def frame_matrix(origin, x, y, z):
+    M = np.eye(4)
+    M[:3, 0], M[:3, 1], M[:3, 2], M[:3, 3] = x, y, z, origin
+    return M
+
+
+# ---------------------------------------------------------------- primitivas
+def superellipsoid(center, radii, e1=1.0, e2=1.0, nu=32, nv=24, mat="Default", mesh="Body",
+                   deform=None):
+    """Elipsoide (e=1) o caja redondeada (e<1). u = longitud, v = latitud."""
+    th = np.linspace(0, np.pi, nv + 1)            # 0 = arriba
+    ph = np.linspace(0, 2 * np.pi, nu + 1)        # 0 = frente (+Z)
+    P, U = [], []
+    sgnpow = lambda x, e: np.sign(x) * np.abs(x) ** e
+    for i, p in enumerate(ph):
+        for j, t in enumerate(th):
+            st, ct = np.sin(t), np.cos(t)
+            x = sgnpow(st, e1) * sgnpow(np.sin(p), e2)
+            y = sgnpow(ct, e1)
+            z = sgnpow(st, e1) * sgnpow(np.cos(p), e2)
+            P.append((x, y, z)); U.append((i / nu, j / nv))
+    P = np.array(P) * np.asarray(radii)
+    if deform is not None:
+        P = deform(P)
+    P = P + np.asarray(center)
+    part = Part(P, grid_faces(nu, nv), np.array(U), mat, mesh)
+    orient_by_volume(part)
+    return part
+
+
+def orient_by_volume(part, center=None):
+    """Hace que los triángulos miren hacia fuera (volumen con signo positivo)."""
+    c0 = part.pos.mean(0) if center is None else np.asarray(center)
+    t = part.pos[part.idx] - c0
+    vol = np.einsum('ij,ij->i', t[:, 0], np.cross(t[:, 1], t[:, 2])).sum()
+    if vol < 0:
+        part.flip_faces()
+    return part
+
+
+def ellipsoid(center, radii, nu=32, nv=24, **kw):
+    return superellipsoid(center, radii, 1.0, 1.0, nu, nv, **kw)
+
+
+def sweep(path, rw, rh, hint=None, nseg=12, mat="Default", mesh="Body", cap_start=True,
+          cap_end=True, uv_u=(0.0, 1.0)):
+    """Tubo de sección elíptica a lo largo de `path` (K,3).
+
+    rw: radio a lo ancho (binormal), rh: radio en dirección `hint` (normal).
+    hint: (K,3) o (3,) vector aproximado para la normal de la sección.
+    """
+    path = np.asarray(path, float)
+    K = len(path)
+    rw = np.broadcast_to(np.asarray(rw, float), (K,))
+    rh = np.broadcast_to(np.asarray(rh, float), (K,))
+    T = np.gradient(path, axis=0)
+    T = normalize(T)
+    if hint is None:
+        hint = np.array([0, 1.0, 0]) if abs(T[0, 1]) < 0.9 else np.array([0, 0, 1.0])
+    hint = np.broadcast_to(np.asarray(hint, float), (K, 3))
+    # marco por transporte paralelo, orientado suavemente hacia hint
+    N = np.zeros((K, 3))
+    n0 = hint[0] - np.dot(hint[0], T[0]) * T[0]
+    if np.linalg.norm(n0) < 1e-6:
+        n0 = np.cross(T[0], [1, 0, 0])
+    N[0] = normalize(n0)
+    for k in range(1, K):
+        n = N[k - 1] - np.dot(N[k - 1], T[k]) * T[k]
+        h = hint[k] - np.dot(hint[k], T[k]) * T[k]
+        if np.linalg.norm(h) > 1e-6:
+            n = normalize(n) * 0.5 + normalize(h) * 0.5
+        N[k] = normalize(n)
+    B = normalize(np.cross(T, N))
+    a = np.linspace(0, 2 * np.pi, nseg + 1)
+    P, U = [], []
+    for k in range(K):
+        for s, ang in enumerate(a):
+            P.append(path[k] + rw[k] * np.cos(ang) * B[k] + rh[k] * np.sin(ang) * N[k])
+            U.append((uv_u[0] + (uv_u[1] - uv_u[0]) * s / nseg, k / (K - 1)))
+    P = np.array(P)
+    faces = list(grid_faces(K - 1, nseg))
+    U = list(U)
+    P = list(P)
+    W = nseg + 1
+    if cap_start:
+        c = len(P); P.append(path[0]); U.append((uv_u[0], 0.0))
+        for s in range(nseg):
+            faces.append((c, s + 1, s))
+    if cap_end:
+        c = len(P); P.append(path[-1]); U.append((uv_u[0], 1.0))
+        base = (K - 1) * W
+        for s in range(nseg):
+            faces.append((c, base + s, base + s + 1))
+    part = Part(np.array(P), np.array(faces), np.array(U), mat, mesh)
+    # la orientación depende de la quiralidad del marco: corrige si apunta hacia dentro
+    _orient_outward(part, path)
+    return part
+
+
+def _orient_outward(part, path):
+    c = part.pos[part.idx]
+    fn = np.cross(c[:, 1] - c[:, 0], c[:, 2] - c[:, 0])
+    cen = c.mean(axis=1)
+    # distancia al punto más cercano del eje
+    d = cen[:, None, :] - path[None, :, :]
+    nearest = path[np.argmin((d ** 2).sum(-1), axis=1)]
+    if np.sum((fn * (cen - nearest)).sum(-1)) < 0:
+        part.flip_faces()
+
+
+def lathe_y(rings, nseg=32, mat="Default", mesh="Body", cap_top=True, cap_bottom=True):
+    """rings: lista de (y, rx, rz, z_offset) de abajo a arriba."""
+    rings = np.asarray(rings, float)
+    K = len(rings)
+    a = np.linspace(0, 2 * np.pi, nseg + 1)
+    P, U = [], []
+    for k, (y, rx, rz, zo) in enumerate(rings):
+        for s, ang in enumerate(a):
+            P.append((rx * np.sin(ang), y, zo + rz * np.cos(ang)))
+            U.append((s / nseg, k / (K - 1)))
+    faces = list(grid_faces(K - 1, nseg))
+    P, U = list(P), list(U)
+    W = nseg + 1
+    if cap_bottom:
+        c = len(P); P.append((0, rings[0, 0], rings[0, 3])); U.append((0, 0))
+        for s in range(nseg):
+            faces.append((c, s, s + 1))
+    if cap_top:
+        c = len(P); P.append((0, rings[-1, 0], rings[-1, 3])); U.append((0, 1))
+        base = (K - 1) * W
+        for s in range(nseg):
+            faces.append((c, base + s + 1, base + s))
+    part = Part(np.array(P), np.array(faces), np.array(U), mat, mesh)
+    axis = np.stack([np.zeros(K), rings[:, 0], rings[:, 3]], 1)
+    _orient_outward(part, axis)
+    return part
+
+
+def polygon_extrude(poly, depth, bevel=0.0, nbevel=3, mat="Default", mesh="Body"):
+    """Extruye un polígono 2D (en XY, antihorario) a lo largo de Z, centrado en z=0.
+
+    El 'bevel' infla los bordes para un aspecto acolchado.
+    """
+    poly = np.asarray(poly, float)
+    n = len(poly)
+    cen = poly.mean(axis=0)
+    # anillos de z = -d/2 a d/2, contraídos hacia el centro en los extremos (acolchado)
+    zs = []
+    for i in range(nbevel + 1):
+        ang = -np.pi / 2 + np.pi * i / nbevel
+        zs.append((np.sin(ang) * depth / 2, bevel * (1 - np.cos(ang))))
+    P, U = [], []
+    for z, shrink in zs:
+        for k in range(n + 1):
+            q = poly[k % n]
+            d = q - cen
+            L = np.linalg.norm(d)
+            q2 = q - d / max(L, 1e-9) * min(shrink, L * 0.9)
+            P.append((q2[0], q2[1], z)); U.append((k / n, (z / depth) + 0.5))
+    faces = [tuple(f[::-1]) for f in grid_faces(len(zs) - 1, n)]  # laterales hacia fuera
+    W = n + 1
+    P, U = list(P), list(U)
+    c0 = len(P); P.append((cen[0], cen[1], zs[0][0])); U.append((0.5, 0))
+    c1 = len(P); P.append((cen[0], cen[1], zs[-1][0])); U.append((0.5, 1))
+    for k in range(n):
+        faces.append((c0, k + 1, k))
+        base = (len(zs) - 1) * W
+        faces.append((c1, base + k, base + k + 1))
+    part = Part(np.array(P), np.array(faces), np.array(U), mat, mesh)
+    return orient_by_volume(part, (cen[0], cen[1], 0))
+
+
+def heart_poly(n=48):
+    t = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    x = 16 * np.sin(t) ** 3
+    y = 13 * np.cos(t) - 5 * np.cos(2 * t) - 2 * np.cos(3 * t) - np.cos(4 * t)
+    p = np.stack([x, y], 1) / 32.0
+    return p[::-1] if _area(p) < 0 else p
+
+
+def star_poly(points=5, r_out=1.0, r_in=0.45):
+    p = []
+    for i in range(points * 2):
+        r = r_out if i % 2 == 0 else r_in
+        a = np.pi / 2 + i * np.pi / points
+        p.append((r * np.cos(a), r * np.sin(a)))
+    p = np.array(p)
+    # redondear un poco las puntas subdividiendo
+    return p if _area(p) > 0 else p[::-1]
+
+
+def rounded_rect_poly(w, h, r, n=6):
+    pts = []
+    for cx, cy, a0 in [(w / 2 - r, h / 2 - r, 0), (-w / 2 + r, h / 2 - r, 90),
+                       (-w / 2 + r, -h / 2 + r, 180), (w / 2 - r, -h / 2 + r, 270)]:
+        for i in range(n + 1):
+            a = np.radians(a0 + 90 * i / n)
+            pts.append((cx + r * np.cos(a), cy + r * np.sin(a)))
+    return np.array(pts)
+
+
+def _area(p):
+    x, y = p[:, 0], p[:, 1]
+    return 0.5 * np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y)
+
+
+# ---------------------------------------------------------------- superficie elíptica
+class EllipsoidSurface:
+    """Superficie analítica para colocar calcomanías (ojos, boca, curitas...)."""
+
+    def __init__(self, center, radii):
+        self.C = np.asarray(center, float)
+        self.R = np.asarray(radii, float)
+
+    def project(self, q):
+        d = np.asarray(q, float) - self.C
+        s = 1.0 / np.sqrt(((d / self.R) ** 2).sum(-1, keepdims=True))
+        return self.C + d * s
+
+    def normal(self, p):
+        return normalize((np.asarray(p) - self.C) / self.R ** 2)
+
+    def front_point(self, x, y):
+        """Punto de la superficie frontal (+Z) con coordenadas x, y dadas."""
+        dx, dy = (x - self.C[0]) / self.R[0], (y - self.C[1]) / self.R[1]
+        z = self.C[2] + self.R[2] * np.sqrt(np.maximum(1e-6, 1 - dx * dx - dy * dy))
+        return np.stack(np.broadcast_arrays(x, y, z), -1)
+
+    def frame_at(self, p, roll=0.0):
+        n = self.normal(p)
+        t = normalize(np.cross([0, 1, 0], n))
+        b = np.cross(n, t)
+        if roll:
+            c, s = np.cos(roll), np.sin(roll)
+            t, b = c * t + s * b, -s * t + c * b
+        return t, b, n
+
+    def map_points(self, center, local_xy, offset, roll=0.0):
+        """Coloca puntos 2D locales (tangente, bitangente) sobre la superficie."""
+        t, b, n = self.frame_at(center, roll)
+        q = center + local_xy[..., 0:1] * t + local_xy[..., 1:2] * b
+        p = self.project(q)
+        return p + self.normal(p) * offset
+
+    def decal(self, center, w, h, offset, roll=0.0, nu=10, nv=10, mat="Default", mesh="Face"):
+        u = np.linspace(0, 1, nu + 1)
+        v = np.linspace(0, 1, nv + 1)
+        UU, VV = np.meshgrid(u, v, indexing="ij")
+        loc = np.stack([(UU - 0.5) * w, (VV - 0.5) * h], -1).reshape(-1, 2)
+        P = self.map_points(center, loc, offset, roll)
+        uv = np.stack([UU.reshape(-1), 1 - VV.reshape(-1)], -1)
+        part = Part(P, grid_faces(nu, nv), uv, mat, mesh, nrm=self.normal(self.project(P)))
+        _face_toward(part, self.normal(np.asarray(center)))
+        return part
+
+
+def _face_toward(part, n):
+    c = part.pos[part.idx]
+    fn = np.cross(c[:, 1] - c[:, 0], c[:, 2] - c[:, 0])
+    if (fn @ n).sum() < 0:
+        part.flip_faces()
+
+
+# =====================================================================================
+#  MODELO: proporciones, cara, pelo, ropa, accesorios, huesos
+# =====================================================================================
 import math
 import os
 import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(globals().get("__file__", "."))))
-# >>> IMPORTS-GEOMETRIA (el generador del script de Blender quita este bloque)
-from geometry import (EllipsoidSurface, orient_by_volume, Part, ellipsoid, grid_faces, heart_poly,  # noqa: E402
-                      lathe_y, normalize, polygon_extrude, rot_x, rounded_rect_poly,
-                      star_poly, superellipsoid, sweep, trans, frame_matrix)
-# <<< IMPORTS-GEOMETRIA
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(globals().get("__file__", "."))))
 OUT = os.path.join(ROOT, "modelo")
@@ -773,7 +1174,7 @@ MATERIALS = {
 }
 
 
-def make_images():
+def make_images():  # solo para el exportador VRM
     import textures as TX
     return {"sclera": TX.sclera(), "iris": TX.iris(), "hair": TX.hair(), "blush": TX.blush(),
             "nose_bandage": TX.nose_bandage(), "cheek_bandage": TX.cheek_bandage(),
@@ -944,6 +1345,530 @@ def main(thumbnail_path=None):
 
 build_chair_parts = build_chair()
 
-# >>> FIN-NUCLEO
-if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs", "thumbnail.png"))
+
+
+# =====================================================================================
+#  PARTE BLENDER: crea objetos, materiales toon, contorno, esqueleto, shape keys y pose.
+#  (Este bloque se añade al final del script generado; usa PARTS, BONES, MATERIALS, etc.)
+# =====================================================================================
+import bpy  # noqa: E402
+from mathutils import Matrix, Vector  # noqa: E402
+
+COLECCION = "ChibiGamer"
+# modelo (Y arriba, +Z frente, +X izquierda del personaje) -> Blender (Z arriba, mira a -Y)
+M_AX = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
+
+
+def to_bl(v):
+    return np.asarray(v, float) @ M_AX.T
+
+
+def srgb(h, a=1.0):
+    h = h.lstrip("#")
+    c = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+    return (c[0], c[1], c[2], a)
+
+
+def rgb255(r, g, b):
+    return "#%02x%02x%02x" % (r, g, b)
+
+
+# ----------------------------------------------------------------- escena / colección
+def preparar_coleccion():
+    if QUITAR_OBJETOS_INICIALES:  # cubo, cámara y luz que trae Blender al abrir
+        for nm in ("Cube", "Camera", "Light"):
+            o = bpy.data.objects.get(nm)
+            if o is not None:
+                bpy.data.objects.remove(o, do_unlink=True)
+    vieja = bpy.data.collections.get(COLECCION)
+    if vieja:
+        for o in list(vieja.all_objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+        bpy.data.collections.remove(vieja)
+    for coll in (bpy.data.meshes, bpy.data.armatures, bpy.data.materials):
+        for d in list(coll):
+            if d.users == 0:
+                coll.remove(d)
+    c = bpy.data.collections.new(COLECCION)
+    bpy.context.scene.collection.children.link(c)
+    return c
+
+
+# ----------------------------------------------------------------- nodos
+class NB:
+    """Pequeño ayudante para escribir texturas procedurales con nodos Math."""
+
+    def __init__(self, nt):
+        self.nt, self.n, self.l = nt, nt.nodes, nt.links
+        tc = self.n.new("ShaderNodeTexCoord")
+        sep = self.n.new("ShaderNodeSeparateXYZ")
+        self.l.new(tc.outputs["UV"], sep.inputs[0])
+        self.u, self.v = sep.outputs[0], sep.outputs[1]
+
+    def _in(self, sock, val):
+        if isinstance(val, (int, float)):
+            sock.default_value = val
+        else:
+            self.l.new(val, sock)
+
+    def m(self, op, a, b=0.0, clamp=False):
+        node = self.n.new("ShaderNodeMath")
+        node.operation = op
+        node.use_clamp = clamp
+        self._in(node.inputs[0], a)
+        self._in(node.inputs[1], b)
+        return node.outputs[0]
+
+    def col(self, h):
+        node = self.n.new("ShaderNodeRGB")
+        node.outputs[0].default_value = srgb(h)
+        return node.outputs[0]
+
+    def mix(self, fac, a, b, blend="MIX"):
+        node = self.n.new("ShaderNodeMix")
+        node.data_type = "RGBA"
+        node.blend_type = blend
+        ins = {s.identifier: s for s in node.inputs}
+        self._in(ins["Factor_Float"], fac)
+        for key, val in (("A_Color", a), ("B_Color", b)):
+            if isinstance(val, str):
+                ins[key].default_value = srgb(val)
+            else:
+                self.l.new(val, ins[key])
+        return next(s for s in node.outputs if s.identifier == "Result_Color")
+
+    # formas -------------------------------------------------------------
+    def ell(self, x, y, cx, cy, rx, ry):
+        """valor ((x-cx)/rx)^2 + ((y-cy)/ry)^2 (dentro si < 1)."""
+        dx = self.m("DIVIDE", self.m("SUBTRACT", x, cx), rx)
+        dy = self.m("DIVIDE", self.m("SUBTRACT", y, cy), ry)
+        return self.m("ADD", self.m("MULTIPLY", dx, dx), self.m("MULTIPLY", dy, dy))
+
+    def inside(self, val, thr=1.0):
+        return self.m("LESS_THAN", val, thr)
+
+    def rect(self, x, y, cx, cy, hw, hh):
+        a = self.m("LESS_THAN", self.m("ABSOLUTE", self.m("SUBTRACT", x, cx)), hw)
+        b = self.m("LESS_THAN", self.m("ABSOLUTE", self.m("SUBTRACT", y, cy)), hh)
+        return self.m("MULTIPLY", a, b)
+
+    def superell(self, x, y, p):
+        ax = self.m("ABSOLUTE", self.m("SUBTRACT", self.m("MULTIPLY", x, 2.0), 1.0))
+        ay = self.m("ABSOLUTE", self.m("SUBTRACT", self.m("MULTIPLY", y, 2.0), 1.0))
+        return self.m("ADD", self.m("POWER", ax, p), self.m("POWER", ay, p))
+
+    def AND(self, a, b):
+        return self.m("MULTIPLY", a, b)
+
+
+def textura_procedural(kind, nb):
+    """Devuelve (color, alfa) que imitan las texturas pintadas del modelo."""
+    u, v = nb.u, nb.v
+    up_dec = nb.m("SUBTRACT", 1.0, v)  # en calcomanías la v crece hacia abajo
+    if kind == "sclera":
+        d = nb.ell(u, v, 0.5, 0.5, 0.47, 0.47)
+        c = nb.mix(nb.m("MULTIPLY", nb.m("SUBTRACT", v, 0.62), 4.0, clamp=True), "#ffffff", "#c8d4f0")
+        c = nb.mix(nb.m("GREATER_THAN", d, 0.80), c, "#281e3a")
+        c = nb.mix(nb.AND(nb.m("GREATER_THAN", d, 0.66), nb.m("LESS_THAN", v, 0.45)), c, "#1e162c")
+        return c, nb.inside(d)
+    if kind == "iris":
+        d = nb.ell(u, v, 0.5, 0.5, 0.48, 0.48)
+        c = nb.mix(nb.m("DIVIDE", nb.m("SUBTRACT", 0.85, v), 0.75, clamp=True), "#2846be", "#82e1ff")
+        c = nb.mix(nb.m("GREATER_THAN", d, 0.78), c, "#161a46")
+        d2 = nb.ell(u, v, 0.5, 0.47, 0.34, 0.33)
+        arc = nb.AND(nb.AND(nb.m("GREATER_THAN", d2, 0.75), nb.m("LESS_THAN", d2, 1.0)),
+                     nb.m("LESS_THAN", v, 0.42))
+        c = nb.mix(arc, c, "#aaf0ff")
+        c = nb.mix(nb.inside(nb.ell(u, v, 0.5, 0.49, 0.17, 0.19)), c, "#12123c")
+        for (cx, cy, r) in ((0.32, 0.69, 0.14), (0.67, 0.35, 0.07), (0.66, 0.70, 0.04),
+                            (0.36, 0.38, 0.035), (0.70, 0.54, 0.03)):
+            c = nb.mix(nb.inside(nb.ell(u, v, cx, cy, r, r * 0.95)), c, "#ffffff")
+        return c, nb.inside(d)
+    if kind == "blush":
+        y = up_dec
+        c = nb.col("#ffaaaf")
+        for cx in (0.32, 0.48, 0.64):
+            xx = nb.m("SUBTRACT", nb.m("SUBTRACT", u, cx), nb.m("MULTIPLY", nb.m("SUBTRACT", y, 0.5), 0.16))
+            line = nb.AND(nb.m("LESS_THAN", nb.m("ABSOLUTE", xx), 0.022),
+                          nb.m("LESS_THAN", nb.m("ABSOLUTE", nb.m("SUBTRACT", y, 0.5)), 0.2))
+            c = nb.mix(line, c, "#f06e7d")
+        return c, nb.inside(nb.ell(u, y, 0.5, 0.5, 0.5, 0.5))
+    if kind == "nose_bandage":
+        y = up_dec
+        s = nb.superell(u, y, 6.0)
+        c = nb.mix(nb.m("GREATER_THAN", s, 0.5), "#46c8d7", "#143c50")
+        c = nb.mix(nb.rect(u, y, 0.5, 0.5, 0.14, 0.28), c, "#8ce6f0")
+        for i in range(3):
+            for j in range(2):
+                c = nb.mix(nb.inside(nb.ell(u, y, 0.43 + 0.07 * i, 0.4 + 0.2 * j, 0.014, 0.038)), c,
+                           "#1e788c")
+        return c, nb.inside(s)
+    if kind == "cheek_bandage":
+        y = up_dec
+        s = nb.superell(u, y, 4.0)
+        stripes = nb.m("LESS_THAN", nb.m("FRACT", nb.m("MULTIPLY", nb.m("ADD", u, nb.m("MULTIPLY", y, 0.8)), 5.0)), 0.14)
+        c = nb.mix(stripes, "#faeede", "#d2c3b9")
+        c = nb.mix(nb.m("GREATER_THAN", s, 0.6), c, "#786464")
+        return c, nb.inside(s)
+    if kind == "blob_face":
+        y = v  # v hacia abajo
+        ink = None
+        for cx in (0.3, 0.7):
+            line = nb.rect(u, y, cx, 0.42, 0.08, 0.03)
+            pup = nb.AND(nb.inside(nb.ell(u, y, cx, 0.46, 0.06, 0.16)), nb.m("GREATER_THAN", y, 0.42))
+            e = nb.m("MAXIMUM", line, pup)
+            ink = e if ink is None else nb.m("MAXIMUM", ink, e)
+        ink = nb.m("MAXIMUM", ink, nb.rect(u, y, 0.5, 0.72, 0.04, 0.02))
+        blush = nb.m("MAXIMUM", nb.inside(nb.ell(u, y, 0.27, 0.75, 0.05, 0.1)),
+                     nb.inside(nb.ell(u, y, 0.67, 0.75, 0.05, 0.1)))
+        c = nb.mix(blush, "#ff78a0", "#ff78a0")
+        c = nb.mix(ink, c, "#281422")
+        return c, nb.m("MAXIMUM", ink, blush)
+    if kind == "hair":
+        # cara exterior del mechón: fract(u*10) < 0.4 (ver textures.hair)
+        local = nb.m("FRACT", nb.m("MULTIPLY", u, 10.0))
+        across = nb.m("SUBTRACT", 1.0, nb.m("DIVIDE", nb.m("ABSOLUTE", nb.m("SUBTRACT", local, 0.2)), 0.2),
+                      clamp=True)
+        top = nb.m("LESS_THAN", local, 0.4)
+        across = nb.m("MULTIPLY", across, top)
+        base = nb.mix(v, "#0c0a16", "#181228")
+        purple = nb.m("LESS_THAN", u, 0.5)
+        sheen_c = nb.mix(purple, "#28467f", "#3a286e")
+        band = nb.m("MULTIPLY", nb.m("SUBTRACT", 1.0, nb.m("DIVIDE", nb.m("ABSOLUTE", nb.m("SUBTRACT", v, 0.42)),
+                                                         0.2), clamp=True), across)
+        c = nb.mix(nb.m("MULTIPLY", band, 0.8), base, sheen_c)
+        stroke = nb.m("MULTIPLY", nb.m("SUBTRACT", 1.0, nb.m("DIVIDE", nb.m("ABSOLUTE", nb.m("SUBTRACT", v, 0.36)),
+                                                           0.06), clamp=True),
+                      nb.m("DIVIDE", nb.m("SUBTRACT", across, 0.3), 0.7, clamp=True))
+        shine_c = nb.mix(purple, "#50bef5", "#7852dc")
+        stroke = nb.m("MULTIPLY", stroke, nb.m("GREATER_THAN", u, 0.5))  # solo mechones celestes
+        return nb.mix(nb.m("MULTIPLY", stroke, 1.6, clamp=True), c, shine_c), None
+    return None, None
+
+
+def material_toon(name, spec, kind=None):
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    nb = NB(nt)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    diff = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    s2r = nt.nodes.new("ShaderNodeShaderToRGB")
+    nt.links.new(diff.outputs[0], s2r.inputs[0])
+    ramp = nt.nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.interpolation = "CONSTANT"
+    ramp.color_ramp.elements[0].color = (0, 0, 0, 1)
+    ramp.color_ramp.elements[1].position = spec.get("toon_threshold", 0.12)
+    ramp.color_ramp.elements[1].color = (1, 1, 1, 1)
+    nt.links.new(s2r.outputs[0], ramp.inputs[0])
+    tex, alpha = textura_procedural(kind, nb) if kind else (None, None)
+    lit = nb.col(spec["color"]) if tex is None else nb.mix(1.0, tex, spec["color"], "MULTIPLY")
+    shade = nb.col(spec.get("shade", spec["color"])) if tex is None else nb.mix(
+        1.0, tex, spec.get("shade", spec["color"]), "MULTIPLY")
+    final = nb.mix(ramp.outputs[0], shade, lit)
+    if spec.get("emission"):
+        final = nb.mix(1.0, final, spec["emission"], "ADD")
+    emit = nt.nodes.new("ShaderNodeEmission")
+    nt.links.new(final, emit.inputs[0])
+    shader = emit.outputs[0]
+    if alpha is not None:
+        tr = nt.nodes.new("ShaderNodeBsdfTransparent")
+        mx = nt.nodes.new("ShaderNodeMixShader")
+        nt.links.new(alpha, mx.inputs[0])
+        nt.links.new(tr.outputs[0], mx.inputs[1])
+        nt.links.new(shader, mx.inputs[2])
+        shader = mx.outputs[0]
+        if hasattr(m, "blend_method"):
+            try:
+                m.blend_method = "CLIP"
+            except Exception:
+                pass
+        if hasattr(m, "shadow_method"):
+            try:
+                m.shadow_method = "NONE"
+            except Exception:
+                pass
+    nt.links.new(shader, out.inputs[0])
+    m.diffuse_color = srgb(spec["color"])
+    if spec.get("cull") == "off":
+        m.use_backface_culling = False
+    return m
+
+
+def material_contorno(name, h):
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    emit = nt.nodes.new("ShaderNodeEmission")
+    emit.inputs[0].default_value = srgb(h)
+    nt.links.new(emit.outputs[0], out.inputs[0])
+    m.use_backface_culling = True
+    m.diffuse_color = srgb(h)
+    if hasattr(m, "use_backface_culling_shadow"):
+        m.use_backface_culling_shadow = True
+    if hasattr(m, "shadow_method"):
+        try:
+            m.shadow_method = "NONE"
+        except Exception:
+            pass
+    return m
+
+
+TEX_KIND = {"EyeWhite": "sclera", "Iris": "iris", "Blush": "blush", "NoseBandage": "nose_bandage",
+            "CheekBandage": "cheek_bandage", "BlobFace": "blob_face", "Hair": "hair"}
+
+
+# ----------------------------------------------------------------- mallas
+def soldar(p):
+    """Suelda vértices repetidos (costuras) para normales y contorno continuos."""
+    key = np.round(p.pos / 1e-6).astype(np.int64)
+    _, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
+    inv = inv.reshape(-1)
+    idx = inv[p.idx]
+    ok = (idx[:, 0] != idx[:, 1]) & (idx[:, 1] != idx[:, 2]) & (idx[:, 0] != idx[:, 2])
+    loop_uv = p.uv[p.idx][ok]
+    return dict(pos=p.pos[first], idx=idx[ok], loop_uv=loop_uv,
+                joints=None if p.joints is None else np.asarray(p.joints)[first],
+                weights=None if p.weights is None else np.asarray(p.weights)[first],
+                morph={k: d[first] for k, d in p.morph.items()})
+
+
+def crear_objeto(nombre, parts, mats, coll, bone_names=None, outline=True):
+    by_mat = {}
+    for p in parts:
+        by_mat.setdefault(p.mat, []).append(p)
+    mat_names = list(by_mat)
+    morph_names = [k for k in MORPHS if any(k in p.morph for p in parts)]
+    pos, idx, luv, fmat, J, W, outl = [], [], [], [], [], [], []
+    morphs = {k: [] for k in morph_names}
+    off = 0
+    for mi, mn in enumerate(mat_names):
+        for p in by_mat[mn]:
+            s = soldar(p)
+            n = len(s["pos"])
+            pos.append(s["pos"]); idx.append(s["idx"] + off); luv.append(s["loop_uv"])
+            fmat.append(np.full(len(s["idx"]), mi))
+            if bone_names is not None:
+                J.append(s["joints"]); W.append(s["weights"])
+            outl.append(np.full(n, mats[mn].get("outline", 0.0)))
+            for k in morph_names:
+                morphs[k].append(s["morph"].get(k, np.zeros((n, 3))))
+            off += n
+    pos = to_bl(np.vstack(pos)); idx = np.vstack(idx); luv = np.vstack(luv)
+    me = bpy.data.meshes.new(nombre)
+    me.from_pydata(pos.tolist(), [], idx.tolist())
+    me.polygons.foreach_set("material_index", np.concatenate(fmat).astype(np.int32))
+    me.polygons.foreach_set("use_smooth", np.ones(len(idx), bool))
+    uvl = me.uv_layers.new(name="UVMap")
+    uvl.data.foreach_set("uv", luv.astype(np.float32).ravel())
+    me.update()
+    ob = bpy.data.objects.new(nombre, me)
+    coll.objects.link(ob)
+    for mn in mat_names:
+        me.materials.append(MATS_BL[mn])
+    # shape keys (expresiones)
+    if morph_names:
+        ob.shape_key_add(name="Basis", from_mix=False)
+        for k in morph_names:
+            sk = ob.shape_key_add(name=k, from_mix=False)
+            sk.data.foreach_set("co", (pos + to_bl(np.vstack(morphs[k]))).astype(np.float32).ravel())
+            sk.value = 0.0
+    # pesos del esqueleto
+    if bone_names is not None:
+        J = np.vstack(J); W = np.vstack(W)
+        W = W / W.sum(1, keepdims=True)
+        groups = {}
+        for vi in range(len(J)):
+            for k in range(4):
+                if W[vi, k] > 1e-4:
+                    nm = bone_names[J[vi, k]]
+                    if nm not in groups:
+                        groups[nm] = ob.vertex_groups.new(name=nm)
+                    groups[nm].add([vi], float(W[vi, k]), "ADD")
+    # contorno de cómic (casco invertido con Solidify)
+    outl = np.concatenate(outl)
+    if outline and outl.max() > 0:
+        vg = ob.vertex_groups.new(name="Contorno")
+        mx = outl.max()
+        for w in np.unique(outl):
+            sel = np.nonzero(outl == w)[0].tolist()
+            vg.add(sel, float(w / mx), "REPLACE")
+        for mn in mat_names:
+            me.materials.append(OUTLINE_BL[mn])
+        return ob, dict(vg="Contorno", width=mx * 0.01 * GROSOR_CONTORNO, offset=len(mat_names))
+    return ob, None
+
+
+def añadir_contorno(ob, info):
+    if not info:
+        return
+    mod = ob.modifiers.new("Contorno", "SOLIDIFY")
+    mod.thickness = info["width"]
+    mod.offset = 1.0
+    mod.use_flip_normals = True
+    mod.use_rim = False
+    mod.material_offset = info["offset"]
+    mod.vertex_group = info["vg"]
+    mod.thickness_vertex_group = 0.0
+
+
+# ----------------------------------------------------------------- esqueleto y pose
+def crear_esqueleto(coll):
+    arm = bpy.data.armatures.new("ChibiGamer_Esqueleto")
+    ob = bpy.data.objects.new("ChibiGamer", arm)
+    coll.objects.link(ob)
+    bpy.context.view_layer.objects.active = ob
+    for o in bpy.context.view_layer.objects:
+        o.select_set(o == ob)
+    bpy.ops.object.mode_set(mode="EDIT")
+    pos = {b["name"]: b["pos"] for b in BONES}
+    children = {}
+    for b in BONES:
+        children.setdefault(b["parent"], []).append(b["name"])
+    eds = {}
+    for b in BONES:
+        nm = b["name"]
+        head = pos[nm]
+        if nm in TAILS:
+            tail = pos[TAILS[nm]]
+        elif nm == "Head":
+            tail = head + np.array([0, 0.25, 0])
+        elif nm.startswith("Eye_"):
+            tail = head + np.array([0, 0, 0.03])
+        elif nm.startswith("Hand_"):
+            tail = head + np.array([0.05 * (1 if nm.endswith("L") else -1), 0, 0])
+        elif nm.startswith("Toes_"):
+            tail = head + np.array([0, 0, 0.04])
+        elif children.get(nm):
+            tail = pos[children[nm][0]]
+        elif b["parent"]:
+            d = head - pos[b["parent"]]
+            tail = head + d / max(np.linalg.norm(d), 1e-6) * 0.04
+        else:
+            tail = head + np.array([0, 0.1, 0])
+        if np.linalg.norm(tail - head) < 1e-3:
+            tail = head + np.array([0, 0.02, 0])
+        eb = arm.edit_bones.new(nm)
+        eb.head = Vector(to_bl(head)); eb.tail = Vector(to_bl(tail)); eb.roll = 0.0
+        eds[nm] = eb
+    for b in BONES:
+        if b["parent"]:
+            eds[b["name"]].parent = eds[b["parent"]]
+    bpy.ops.object.mode_set(mode="OBJECT")
+    arm.display_type = "STICK"
+    ob.show_in_front = True
+    return ob
+
+
+def _R(axis, a):
+    return np.array(Matrix.Rotation(a, 3, axis))
+
+
+POSE_SENTADO = {  # rotaciones en ejes del modelo (Y arriba, Z frente)
+    "UpperLeg_L": _R("Y", 0.30) @ _R("X", -1.55), "UpperLeg_R": _R("Y", -0.30) @ _R("X", -1.55),
+    "LowerLeg_L": _R("X", 1.45), "LowerLeg_R": _R("X", 1.45),
+    "Foot_L": _R("X", 0.15), "Foot_R": _R("X", 0.15),
+    "UpperArm_L": _R("Y", -0.45) @ _R("Z", -0.85), "UpperArm_R": _R("Y", 0.45) @ _R("Z", 0.85),
+    "LowerArm_L": _R("Y", -1.0), "LowerArm_R": _R("Y", 1.0),
+}
+
+
+def aplicar_pose(rig, pose):
+    for nm, Rm in pose.items():
+        pb = rig.pose.bones.get(nm)
+        if not pb:
+            continue
+        Rb = Matrix((M_AX @ Rm @ M_AX.T).tolist())
+        B = rig.data.bones[nm].matrix_local.to_3x3()
+        pb.rotation_mode = "QUATERNION"
+        pb.rotation_quaternion = (B.inverted() @ Rb @ B).to_quaternion()
+
+
+# ----------------------------------------------------------------- cámara, luz, render
+def preparar_escena(coll, sentado):
+    sc = bpy.context.scene
+    for eng in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
+        try:
+            sc.render.engine = eng
+            break
+        except Exception:
+            continue
+    try:
+        sc.view_settings.view_transform = "Standard"
+    except Exception:
+        pass
+    if sc.world is None:
+        sc.world = bpy.data.worlds.new("Mundo")
+    sc.world.use_nodes = True
+    bg = sc.world.node_tree.nodes.get("Background")
+    if bg:
+        bg.inputs[0].default_value = srgb("#34363f")
+        bg.inputs[1].default_value = 1.0
+    sun_d = bpy.data.lights.new("ChibiGamer_Sol", "SUN")
+    sun_d.energy = 3.0
+    sun = bpy.data.objects.new("ChibiGamer_Sol", sun_d)
+    sun.rotation_euler = (math.radians(50), math.radians(10), math.radians(25))
+    coll.objects.link(sun)
+    cam_d = bpy.data.cameras.new("ChibiGamer_Camara")
+    cam_d.lens = 85
+    cam = bpy.data.objects.new("ChibiGamer_Camara", cam_d)
+    target = Vector((0, 0, 0.8 if sentado else 0.7))
+    cam.location = Vector((0, -3.6, 0.95))
+    cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
+    coll.objects.link(cam)
+    sc.camera = cam
+    sc.render.resolution_x, sc.render.resolution_y = 1080, 1080
+    # vista 3D en modo "Renderizado" para ver el sombreado toon
+    try:
+        for area in bpy.context.screen.areas:
+            if area.type == "VIEW_3D":
+                for sp in area.spaces:
+                    if sp.type == "VIEW_3D":
+                        sp.shading.type = "RENDERED"
+    except Exception:
+        pass
+
+
+# ----------------------------------------------------------------- construir todo
+def construir(sentado=True, con_silla=True):
+    global MATS_BL, OUTLINE_BL
+    apply_proportions()
+    coll = preparar_coleccion()
+    MATS_BL, OUTLINE_BL = {}, {}
+    allmats = dict(MATERIALS)
+    allmats.update({k: dict(v, outline=0.25, outline_color="#07060b", shade=v.get("shade") or
+                            rgb255(*[int(int(v["color"][i:i + 2], 16) * 0.55) for i in (1, 3, 5)]))
+                    for k, v in CHAIR_MATS.items()})
+    # ajustes solo para Blender: piel casi sin sombra (como el dibujo) y pelo con brillos visibles
+    allmats["Skin"] = dict(allmats["Skin"], toon_threshold=0.02)
+    allmats["Hair"] = dict(allmats["Hair"], shade="#c2b8e6", toon_threshold=0.06)
+    for nm, spec in allmats.items():
+        MATS_BL[nm] = material_toon("CG_" + nm, spec, TEX_KIND.get(nm))
+        OUTLINE_BL[nm] = material_contorno("CG_Contorno_" + nm, spec.get("outline_color", "#07060b"))
+    rig = crear_esqueleto(coll)
+    bone_names = [b["name"] for b in BONES]
+    meshes = {}
+    for p in PARTS:
+        meshes.setdefault(p.mesh, []).append(p)
+    for nm, ps in meshes.items():
+        ob, info = crear_objeto("ChibiGamer_" + nm, ps, allmats, coll, bone_names)
+        ob.parent = rig
+        mod = ob.modifiers.new("Esqueleto", "ARMATURE")
+        mod.object = rig
+        añadir_contorno(ob, info)
+    if con_silla:
+        chair, info = crear_objeto("ChibiGamer_Silla", build_chair_parts, allmats, coll, None)
+        añadir_contorno(chair, info)
+    if sentado:
+        aplicar_pose(rig, POSE_SENTADO)
+        rig.location = Vector(to_bl((0, 0.235, -0.04)))
+    preparar_escena(coll, sentado)
+    print("Chibi Gamer listo:", len(PARTS), "piezas,", len(BONES), "huesos")
+    return rig
+
+
+construir(sentado=SENTADO, con_silla=CON_SILLA)

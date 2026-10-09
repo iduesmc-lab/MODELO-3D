@@ -29,6 +29,28 @@ curita en la mejilla, tres corazones, sudadera negra y silla gamer.
   se bambolea. Tienen colisionadores en la cabeza y el pecho.
 - **Materiales MToon** (estilo anime) con contorno negro tipo cómic.
 
+## Script para Blender (todo el modelo en un solo archivo)
+
+`blender/chibi_gamer_blender.py` construye el personaje completo dentro de Blender, sin
+complementos ni archivos externos:
+
+1. Abre Blender 4.2 o más nuevo (probado en 5.2) y ve a la pestaña **Scripting**.
+2. Pulsa **+ New**, pega todo el contenido de `blender/chibi_gamer_blender.py` y pulsa
+   **Run Script** (Alt+P).
+3. Cambia la vista 3D a **Rendered** (tecla Z) o renderiza con F12 (motor EEVEE).
+
+Crea, en la colección `ChibiGamer`:
+- esqueleto humanoide con nombres tipo VRM y pesos,
+- mallas de cara, cuerpo, pelo y accesorios con materiales toon y contorno de cómic,
+- shape keys de expresiones (`Blink_L`, `Blink_R`, `A I U E O`, `Joy`, `Angry`, `Sorrow`,
+  `Fun`, `Surprised`),
+- silla gamer, pose sentada, cámara y luz.
+
+Arriba del script hay opciones: `SENTADO`, `CON_SILLA`, `GROSOR_CONTORNO`.
+
+![render de Blender](docs/blender_render.png)
+El script se regenera con `python3 tools/make_blender_script.py`.
+
 ## Usarlo como VTuber
 
 ### Opción A: VSeeFace u otra app (recomendado para streams)

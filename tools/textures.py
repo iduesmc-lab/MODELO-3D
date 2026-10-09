@@ -1,7 +1,5 @@
 """Texturas pintadas por código (PIL) con el estilo del personaje."""
 import io
-import math
-import random
 
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -83,34 +81,30 @@ def sclera(size=256):
 
 
 def hair(size=512, seed=7):
-    """Atlas de pelo. u<0.5 brillo morado, u>=0.5 brillo azul. v=0 raíz, v=1 punta."""
-    rnd = random.Random(seed)
+    """Atlas de pelo. Cada mechón usa una franja de 0.1 en u; dentro de ella, la primera
+    mitad (fract(u*10) < 0.4) es la cara que mira hacia fuera. u<0.5 brillo morado,
+    u>=0.5 brillo celeste. v=0 raíz, v=1 punta."""
     img = Image.new("RGBA", (size, size), (0, 0, 0, 255))
     px = img.load()
-    base_root = (14, 11, 24)
-    base_tip = (26, 20, 44)
+    root, tip = (12, 10, 22), (24, 18, 40)
     for x in range(size):
-        u = x / size
-        purple = u < 0.5
-        hl = (112, 76, 205) if purple else (70, 120, 210)
-        uu = (u % 0.5) * 2
-        center = 0.42 + 0.06 * math.sin(uu * math.pi * 6) + 0.03 * math.sin(uu * 31)
-        width = 0.09 + 0.04 * math.sin(uu * 17 + 1)
+        u = (x + 0.5) / size
+        local = (u * 10) % 1.0
+        top = local < 0.4
+        shine = (120, 82, 220) if u < 0.5 else (80, 190, 245)
+        sheen = (58, 40, 110) if u < 0.5 else (40, 70, 130)
+        across = 1 - abs(local - 0.2) / 0.2 if top else 0.0
         for y in range(size):
-            v = 1 - y / size  # PIL y=0 arriba -> v=1
-            c = lerp(base_root, base_tip, v)
-            t = max(0.0, 1 - abs(v - center) / width)
-            t = t ** 1.5
-            c = lerp(c, hl, t * 0.95)
+            v = 1 - (y + 0.5) / size
+            c = lerp(root, tip, v)
+            if top:
+                band = max(0.0, 1 - abs(v - 0.42) / 0.2) * across
+                c = lerp(c, sheen, band * 0.8)
+                stroke = max(0.0, 1 - abs(v - 0.36) / 0.06) * max(0.0, (across - 0.3) / 0.7)
+                if u >= 0.5:  # solo algunos mechones llevan el trazo celeste
+                    c = lerp(c, shine, min(1.0, stroke * 1.6))
             px[x, y] = c + (255,)
-    # pequeños destellos celestes
-    d = ImageDraw.Draw(img)
-    for _ in range(14):
-        x = rnd.random() * size
-        y = size * (1 - (0.3 + rnd.random() * 0.25))
-        r = 2 + rnd.random() * 4
-        d.ellipse([x - r, y - r * 2, x + r, y + r * 2], fill=(70, 160, 220, 255))
-    return img.filter(ImageFilter.GaussianBlur(1.2))
+    return img.filter(ImageFilter.GaussianBlur(0.8))
 
 
 def blush(size=128):
