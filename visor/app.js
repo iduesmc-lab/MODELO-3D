@@ -125,14 +125,14 @@ addEventListener('drop', (e) => {
 
 // ------------------------------------------------------------------ pose
 let seated = params.get('pose') !== 'stand';
-const SEAT_OFFSET = new THREE.Vector3(0, 0.17, -0.03);
+const SEAT_OFFSET = new THREE.Vector3(0, 0.235, -0.04);
 const POSE_SIT = {
-  leftUpperLeg: [-1.45, 0, 0.12], rightUpperLeg: [-1.45, 0, -0.12],
-  leftLowerLeg: [1.25, 0, 0], rightLowerLeg: [1.25, 0, 0],
-  leftFoot: [0.2, 0, 0], rightFoot: [0.2, 0, 0],
-  leftUpperArm: [0, 0.35, -1.0], rightUpperArm: [0, -0.35, 1.0],
-  leftLowerArm: [0, -0.9, 0], rightLowerArm: [0, 0.9, 0],
-  leftHand: [0, 0, -0.2], rightHand: [0, 0, 0.2],
+  leftUpperLeg: [-1.65, 0.25, 0.32], rightUpperLeg: [-1.65, -0.25, -0.32],
+  leftLowerLeg: [1.45, 0, 0], rightLowerLeg: [1.45, 0, 0],
+  leftFoot: [0.1, 0, 0], rightFoot: [0.1, 0, 0],
+  leftUpperArm: [0, 0.45, -0.85], rightUpperArm: [0, -0.45, 0.85],
+  leftLowerArm: [0, -1.1, 0], rightLowerArm: [0, 1.1, 0],
+  leftHand: [0, 0, -0.3], rightHand: [0, 0, 0.3],
 };
 const POSE_STAND = {
   leftUpperArm: [0, 0, -1.15], rightUpperArm: [0, 0, 1.15],
@@ -303,6 +303,8 @@ function animate() {
       vrm.lookAt.target = null;
       vrm.lookAt.yaw = lerp(vrm.lookAt.yaw, face.lookX * 25, k);
       vrm.lookAt.pitch = lerp(vrm.lookAt.pitch, face.lookY * 20, k);
+    } else if (params.has('nolook')) {
+      vrm.lookAt.target = null; vrm.lookAt.yaw = 0; vrm.lookAt.pitch = 0;
     } else if (vrm.lookAt.target !== camera) {
       vrm.lookAt.target = camera;
     }

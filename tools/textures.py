@@ -31,7 +31,7 @@ def iris(size=256):
     S = size * SS
     img = _canvas(size, size)
     d = ImageDraw.Draw(img)
-    top, bot = (58, 40, 140, 255), (110, 215, 255, 255)
+    top, bot = (40, 70, 190, 255), (130, 225, 255, 255)
     # degradado vertical dentro del círculo
     grad = Image.new("RGBA", (S, S))
     gd = ImageDraw.Draw(grad)
@@ -77,7 +77,8 @@ def sclera(size=256):
     img.paste(sh, (0, 0), Image.composite(sh.split()[3], Image.new("L", (S, S), 0), mask))
     # contorno inferior
     d = ImageDraw.Draw(img)
-    d.arc([m, m, S - m, S - m], 15, 165, fill=(52, 40, 70, 255), width=int(S * 0.035))
+    d.ellipse([m, m, S - m, S - m], outline=(40, 30, 58, 255), width=int(S * 0.05))
+    d.arc([m, m, S - m, S - m], 25, 155, fill=(30, 22, 44, 255), width=int(S * 0.075))
     return _down(img, size, size)
 
 
@@ -91,16 +92,16 @@ def hair(size=512, seed=7):
     for x in range(size):
         u = x / size
         purple = u < 0.5
-        hl = (78, 52, 150) if purple else (48, 92, 170)
+        hl = (120, 80, 215) if purple else (60, 150, 235)
         uu = (u % 0.5) * 2
         center = 0.42 + 0.06 * math.sin(uu * math.pi * 6) + 0.03 * math.sin(uu * 31)
-        width = 0.10 + 0.04 * math.sin(uu * 17 + 1)
+        width = 0.13 + 0.05 * math.sin(uu * 17 + 1)
         for y in range(size):
             v = 1 - y / size  # PIL y=0 arriba -> v=1
             c = lerp(base_root, base_tip, v)
             t = max(0.0, 1 - abs(v - center) / width)
             t = t ** 1.5
-            c = lerp(c, hl, t * 0.75)
+            c = lerp(c, hl, t * 0.95)
             px[x, y] = c + (255,)
     # pequeños destellos celestes
     d = ImageDraw.Draw(img)

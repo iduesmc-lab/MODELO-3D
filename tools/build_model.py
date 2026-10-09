@@ -35,7 +35,7 @@ bone("Chest", "Spine", (0, 0.49, 0), "chest")
 bone("UpperChest", "Chest", (0, 0.545, 0), "upperChest")
 bone("Neck", "UpperChest", (0, 0.595, 0), "neck")
 bone("Head", "Neck", (0, 0.635, 0), "head")
-EYE_Y, EYE_X = 0.766, 0.090
+EYE_Y, EYE_X = 0.752, 0.112
 for side, s in (("L", 1), ("R", -1)):
     full = "left" if s > 0 else "right"
     bone(f"Shoulder_{side}", "UpperChest", (0.03 * s, 0.565, 0), f"{full}Shoulder")
@@ -155,7 +155,7 @@ add(rigid(neck, "Neck"))
 
 MORPHS = ["Blink_L", "Blink_R", "A", "I", "U", "E", "O", "Joy", "Angry", "Sorrow", "Fun",
           "Surprised"]
-EYE_A, EYE_B = 0.050, 0.044  # semiejes del ojo
+EYE_A, EYE_B = 0.072, 0.060  # semiejes del ojo
 
 
 def face_points(xy, off):
@@ -197,7 +197,7 @@ for s in (1, -1):
     # ojo blanco (cutout elíptico)
     def sclera_xy(shape, U, V, ex=ex, ey=ey):
         return ex + (U - 0.5) * 2 * EYE_A * 1.04, ey + (V - 0.5) * 2 * EYE_B * 1.04
-    p = face_grid_part(sclera_xy, 12, 12, 0.0012, "EyeWhite", [])
+    p = face_grid_part(sclera_xy, 16, 16, 0.0012, "EyeWhite", [])
     add(rigid(p, "Head"))
 
     # iris: rota con el hueso del ojo (lookAt por hueso)
@@ -207,8 +207,8 @@ for s in (1, -1):
     bone(f"Eye_{side}", "Head", eye_center, "leftEye" if s > 0 else "rightEye")
 
     def iris_xy(shape, U, V, ic=ic):
-        return ic[0] + (U - 0.5) * 0.064, ic[1] + (V - 0.5) * 0.072
-    p = face_grid_part(iris_xy, 10, 10, 0.0024, "Iris", [])
+        return ic[0] + (U - 0.5) * 0.080, ic[1] + (V - 0.5) * 0.090
+    p = face_grid_part(iris_xy, 14, 14, 0.0026, "Iris", [])
     add(rigid(p, f"Eye_{side}"))
 
     # párpado superior + pestaña
@@ -236,7 +236,7 @@ for s in (1, -1):
         elif shape == "Fun":
             e = ey + 0.0
         else:
-            e = ey + 0.011 - 0.002 * o * o
+            e = ey + 0.020 - 0.004 * o * o
         return np.minimum(e, top_y(x))
 
     def lid_xy(shape, U, V, ex=ex):
@@ -244,7 +244,7 @@ for s in (1, -1):
         t = top_y(x)
         return x, t + (lid_edge(shape, x) - t) * V
 
-    p = face_grid_part(lid_xy, 16, 4, 0.0036, "Skin", MORPHS)
+    p = face_grid_part(lid_xy, 28, 14, 0.0048, "Skin", MORPHS)
     add(rigid(p, "Head"))
 
     def lash_line(shape, x, ex=ex, ey=ey):
@@ -261,12 +261,12 @@ for s in (1, -1):
         # de interior (U=0) a exterior (U=1); la punta exterior se alarga
         x = ex + (-1.02 + U * 2.16) * EYE_A * s
         y = lash_line(shape, x)
-        thick = 0.0055 * np.clip(np.minimum(U / 0.12, (1 - U) / 0.18), 0.25, 1)
+        thick = 0.011 * np.clip(np.minimum(U / 0.12, (1 - U) / 0.18), 0.25, 1)
         if shape not in (blink, "Joy"):
             y = y - 0.004 * np.clip((U - 0.88) / 0.12, 0, 1)  # pequeño rabito exterior
         return x, y + (V - 0.3) * thick
 
-    p = face_grid_part(lash_xy, 24, 2, 0.0046, "Lash", MORPHS)
+    p = face_grid_part(lash_xy, 32, 2, 0.0060, "Lash", MORPHS)
     add(rigid(p, "Head"))
 
     # ceja (casi siempre tapada por el flequillo)
@@ -289,12 +289,12 @@ for s in (1, -1):
     add(rigid(p, "Head"))
 
     # rubor
-    bc = face_points(np.array([0.122 * s, 0.712]), 0)
-    p = HEAD.decal(bc, 0.056, 0.028, 0.0009, nu=8, nv=4, mat="Blush")
+    bc = face_points(np.array([0.135 * s, 0.700]), 0)
+    p = HEAD.decal(bc, 0.075, 0.036, 0.0009, nu=8, nv=4, mat="Blush")
     add(rigid(p, "Head"))
 
 # ---- boca
-MOUTH_Y = 0.684
+MOUTH_Y = 0.676
 MOUTH = {  # w, h_arriba, h_abajo, curva (+ sonrisa)
     None: (0.0085, 0.0004, 0.0004, -0.0016),
     "A": (0.0125, 0.006, 0.015, 0.0), "I": (0.016, 0.0025, 0.0045, 0.0012),
@@ -332,17 +332,17 @@ add(rigid(mouth_part(0.0012, 0.0012, "MouthLine"), "Head"))
 add(rigid(mouth_part(-0.0004, 0.0020, "MouthInner"), "Head"))
 
 # ---- curitas
-nb = face_points(np.array([0.0, 0.743]), 0)
-add(rigid(HEAD.decal(nb, 0.060, 0.022, 0.0016, roll=math.radians(-6), nu=10, nv=4,
+nb = face_points(np.array([0.0, 0.732]), 0)
+add(rigid(HEAD.decal(nb, 0.086, 0.031, 0.0016, roll=math.radians(-6), nu=10, nv=4,
                      mat="NoseBandage"), "Head"))
-cb = HEAD.project(np.array([-0.150, 0.712, 0.12]))
-add(rigid(HEAD.decal(cb, 0.040, 0.032, 0.0016, roll=math.radians(35), nu=6, nv=6,
+cb = HEAD.project(np.array([-0.160, 0.690, 0.12]))
+add(rigid(HEAD.decal(cb, 0.052, 0.042, 0.0016, roll=math.radians(35), nu=6, nv=6,
                      mat="CheekBandage"), "Head"))
 
 # ============================================================== cuerpo
-torso = lathe_y([(0.30, 0.0, 0.0, 0), (0.315, 0.09, 0.075, 0), (0.345, 0.118, 0.092, 0),
-                 (0.40, 0.118, 0.090, 0), (0.47, 0.110, 0.086, 0), (0.53, 0.106, 0.082, 0),
-                 (0.565, 0.098, 0.076, 0), (0.590, 0.075, 0.064, 0), (0.605, 0.045, 0.045, -0.005)],
+torso = lathe_y([(0.30, 0.0, 0.0, 0), (0.315, 0.10, 0.085, 0), (0.345, 0.128, 0.102, 0),
+                 (0.40, 0.130, 0.102, 0), (0.47, 0.124, 0.098, 0), (0.53, 0.118, 0.092, 0),
+                 (0.565, 0.108, 0.084, 0), (0.590, 0.080, 0.068, 0), (0.605, 0.045, 0.045, -0.005)],
                 nseg=40, mat="Hoodie", mesh="Body", cap_bottom=False)
 add(envelope(torso, ["Hips", "Spine", "Chest", "UpperChest", "Neck", "Shoulder_L",
                      "Shoulder_R"]))
@@ -364,15 +364,15 @@ for s in (1, -1):
     # manga
     xs = np.linspace(0.05, 0.312, 10)
     path = np.stack([xs * s, np.full_like(xs, 0.565), np.zeros_like(xs)], 1)
-    r = np.interp(xs, [0.05, 0.1, 0.2, 0.28, 0.312], [0.05, 0.046, 0.041, 0.045, 0.047])
+    r = np.interp(xs, [0.05, 0.1, 0.2, 0.28, 0.312], [0.058, 0.055, 0.05, 0.053, 0.055])
     sleeve = sweep(path, r, r * 0.95, hint=(0, 1, 0), nseg=20, mat="Hoodie", mesh="Body",
                    cap_start=False)
     add(envelope(sleeve, ["UpperChest", f"Shoulder_{sd}", f"UpperArm_{sd}", f"LowerArm_{sd}"]))
-    cuff = sweep([(0.300 * s, 0.565, 0), (0.316 * s, 0.565, 0)], 0.048, 0.046, hint=(0, 1, 0),
+    cuff = sweep([(0.300 * s, 0.565, 0), (0.316 * s, 0.565, 0)], 0.056, 0.054, hint=(0, 1, 0),
                  nseg=20, mat="Hoodie", mesh="Body")
     add(envelope(cuff, [f"LowerArm_{sd}", f"Hand_{sd}"]))
     # mano tipo manopla + pulgar
-    hand = ellipsoid((0.345 * s, 0.562, 0.0), (0.040, 0.034, 0.037), 20, 14, mat="Skin",
+    hand = ellipsoid((0.348 * s, 0.562, 0.0), (0.046, 0.04, 0.043), 20, 14, mat="Skin",
                      mesh="Body")
     add(rigid(hand, f"Hand_{sd}"))
     thumb = ellipsoid((0.333 * s, 0.57, 0.03), (0.014, 0.013, 0.019), 12, 8, mat="Skin",
@@ -381,7 +381,7 @@ for s in (1, -1):
     # pierna
     ys = np.linspace(0.37, 0.07, 10)
     path = np.stack([np.full_like(ys, 0.06 * s), ys, np.zeros_like(ys)], 1)
-    r = np.interp(ys[::-1], [0.07, 0.1, 0.2, 0.3, 0.37], [0.052, 0.047, 0.046, 0.052, 0.056])[::-1]
+    r = np.interp(ys[::-1], [0.07, 0.1, 0.2, 0.3, 0.37], [0.062, 0.058, 0.057, 0.064, 0.068])[::-1]
     leg = sweep(path, r, r * 0.96, hint=(0, 0, 1), nseg=20, mat="Pants", mesh="Body",
                 cap_start=False)
     add(envelope(leg, ["Hips", f"UpperLeg_{sd}", f"LowerLeg_{sd}", f"Foot_{sd}"]))
@@ -397,18 +397,19 @@ rng = np.random.default_rng(11)
 HAIR_GROUPS = {}
 
 
-def hair_cap():
+def hair_cap(volume=0.0):
     nu, nv = 72, 20
     ph = np.linspace(0, 2 * np.pi, nu + 1)
     P, U = [], []
     for i, p in enumerate(ph):
         f = (1 + math.cos(p)) / 2
-        line = -0.62 + (0.42 + 0.62) * f ** 1.6  # altura del nacimiento del pelo (dy)
+        line = -0.62 + (0.20 + 0.62) * f ** 1.6  # altura del nacimiento del pelo (dy)
         tmax = math.acos(line)
         for j in range(nv + 1):
             t = tmax * j / nv
             d = np.array([math.sin(t) * math.sin(p), math.cos(t), math.sin(t) * math.cos(p)])
-            P.append(HEAD.project(HEAD_C + d) + HEAD.normal(HEAD.project(HEAD_C + d)) * 0.012)
+            off = 0.012 + volume * (1 - j / nv) ** 0.35
+            P.append(HEAD.project(HEAD_C + d) + HEAD.normal(HEAD.project(HEAD_C + d)) * off)
             U.append((0.25 + 0.05 * i / nu, 0.05 + 0.25 * j / nv))
     return Part(np.array(P), grid_faces(nu, nv), np.array(U), "Hair", "Hair")
 
@@ -416,6 +417,9 @@ def hair_cap():
 cap = hair_cap()
 orient_by_volume(cap, HEAD_C)
 add(rigid(cap, "Head"))
+shell = hair_cap(volume=0.09)  # masa de volumen bajo los mechones (silueta sólida)
+orient_by_volume(shell, HEAD_C)
+add(rigid(shell, "Head"))
 
 
 def scalp(theta, phi, extra=0.01):
@@ -425,7 +429,8 @@ def scalp(theta, phi, extra=0.01):
 
 
 def grow_clump(theta, phi, length, width, thick, droop=1.0, flick=0.0, flick_dir=None,
-               out=0.25, K=14, lift=0.0, min_clear=0.012):
+               out=0.25, K=16, lift=0.0, min_clear=0.012, wave=0.0, wave_freq=1.3, phase=0.0,
+               flick_start=0.6):
     """Línea central de un mechón: se pega al cráneo (con volumen creciente),
     cae por gravedad cuando pasa el "ecuador" y abre la punta (flick)."""
     p, n = scalp(theta, phi, 0.004)
@@ -449,9 +454,9 @@ def grow_clump(theta, phi, length, width, thick, droop=1.0, flick=0.0, flick_dir
             d = normalize(d - np.dot(d, nn) * nn + gt * 0.25)
         else:
             d = normalize(d + g * 0.35 + nn * 0.05)
-        if flick and t > 0.7:
+        if flick and t > flick_start:
             fd = flick_dir if flick_dir is not None else nn
-            d = normalize(d + normalize(fd) * flick * 0.35)
+            d = normalize(d + normalize(fd) * flick * 0.4)
         q = pts[-1] + d * step
         sq = HEAD.project(q)
         nq = HEAD.normal(sq)
@@ -464,8 +469,14 @@ def grow_clump(theta, phi, length, width, thick, droop=1.0, flick=0.0, flick_dir
         pts.append(q)
     pts = np.array(pts)
     tt = np.linspace(0, 1, K)
-    w = width * (0.75 + 0.25 * np.sin(np.minimum(tt * 2.5, 1) * np.pi / 2)) * (1 - tt) ** 0.75 + 0.0008
-    h = thick * (1 - tt) ** 0.6 + 0.0006
+    if wave:
+        T = normalize(np.gradient(pts, axis=0))
+        N = np.array([HEAD.normal(HEAD.project(q)) for q in pts])
+        lat = normalize(np.cross(N, T))
+        pts = pts + lat * (wave * np.sin(np.pi * wave_freq * tt + phase) * tt)[:, None]
+    # perfil de hoja: estrecho en la raíz, ancho a un tercio, punta afilada
+    w = width * (0.5 + 0.5 * np.sin(np.minimum(tt / 0.35, 1) * np.pi / 2)) * (1 - tt) ** 0.85 + 0.0006
+    h = thick * (0.6 + 0.4 * np.sin(np.minimum(tt / 0.35, 1) * np.pi / 2)) * (1 - tt) ** 0.6 + 0.0005
     hint = np.array([HEAD.normal(HEAD.project(q)) for q in pts])
     return pts, w, h, hint
 
@@ -487,52 +498,88 @@ def jit(a, s):
     return a + (rng.random() * 2 - 1) * s
 
 
-# flequillo: mechones anchos que caen sobre la frente hasta los ojos
-for i, ph in enumerate(np.linspace(-70, 70, 12)):
-    phi = math.radians(jit(ph, 3))
-    theta = math.radians(jit(22 + abs(ph) * 0.12, 3))
-    L = jit(0.19 + 0.03 * (1 - abs(ph) / 70), 0.015)
-    side = math.sin(phi)
-    pts, w, h, hint = grow_clump(theta, phi, L, jit(0.044, 0.006), 0.011, droop=0.8, out=0.1,
-                                 flick=0.35, flick_dir=(side * 1.0, 0.5, 0.4), min_clear=0.018)
+# flequillo: mechones grandes y ondulados que caen hasta los ojos (como comas)
+BANGS = [  # phi, theta, largo, ancho, curva de la punta (+ = hacia la izquierda del personaje)
+    (-66, 34, 0.21, 0.085, -1), (-50, 26, 0.23, 0.095, 1), (-34, 19, 0.25, 0.10, -1),
+    (-18, 14, 0.27, 0.095, 1), (-3, 12, 0.285, 0.09, -1), (12, 13, 0.27, 0.095, 1),
+    (27, 17, 0.255, 0.10, -1), (43, 23, 0.235, 0.095, 1), (60, 31, 0.21, 0.085, -1),
+]
+for i, (ph, th, L, W, cd) in enumerate(BANGS):
+    phi, theta = math.radians(jit(ph, 2)), math.radians(jit(th, 2))
+    pts, w, h, hint = grow_clump(theta, phi, jit(L, 0.01), W, 0.015, droop=0.9, out=0.05,
+                                 flick=0.55, flick_dir=(cd, 0.25, 0.35), min_clear=0.016,
+                                 wave=0.012, wave_freq=1.2, phase=rng.random() * 3, flick_start=0.65)
     add_clump(pts, w, h, hint, "BangsL" if ph > 0 else "BangsR", hue=i % 3 == 0)
+# mechoncitos sueltos encima del flequillo
+for i in range(7):
+    ph = jit(0, 55)
+    pts, w, h, hint = grow_clump(math.radians(jit(22, 6)), math.radians(ph), jit(0.15, 0.03),
+                                 0.03, 0.007, droop=0.7, out=0.2, flick=1.0,
+                                 flick_dir=(math.copysign(1, ph), 0.6, 0.5), min_clear=0.03,
+                                 wave=0.01, phase=rng.random() * 3)
+    add_clump(pts, w, h, hint, "BangsL" if ph > 0 else "BangsR", hue=i % 2)
 
-# lados: voluminosos, puntas que se abren hacia fuera
+# lados: muy esponjosos, puntas que se enroscan hacia arriba y afuera
 for s in (1, -1):
-    for i, ph in enumerate(np.linspace(62, 132, 8)):
+    for i, ph in enumerate(np.linspace(58, 128, 9)):
         phi = math.radians(jit(ph, 4)) * s
-        theta = math.radians(jit(30 + (ph - 62) * 0.25, 4))
-        L = jit(0.24, 0.03)
-        out_dir = np.array([s * 0.8, 0.5, 0.0 if ph < 100 else -0.4])
-        pts, w, h, hint = grow_clump(theta, phi, L, jit(0.06, 0.01), 0.014, droop=0.6,
-                                     out=0.4, flick=0.7, flick_dir=out_dir, min_clear=0.055)
+        theta = math.radians(jit(26 + (ph - 58) * 0.35, 4))
+        out_dir = np.array([s * 0.9, 0.5, 0.3 if ph < 95 else -0.4])
+        pts, w, h, hint = grow_clump(theta, phi, jit(0.30, 0.03), jit(0.085, 0.01), 0.016,
+                                     droop=0.8, out=0.4, flick=0.7, flick_dir=out_dir,
+                                     min_clear=jit(0.09, 0.015), wave=0.018,
+                                     phase=rng.random() * 3, flick_start=0.72)
         add_clump(pts, w, h, hint, "SideL" if s > 0 else "SideR", hue=i % 2)
 
-# nuca/atrás: mucho volumen en dos capas
-for row, (th0, n, L0, clear) in enumerate(((20, 12, 0.29, 0.07), (50, 13, 0.24, 0.05),
-                                             (85, 11, 0.15, 0.03))):
-    for i, ph in enumerate(np.linspace(130, 230, n)):
+# nuca/atrás: gran volumen en tres capas
+for row, (th0, n, L0, clear) in enumerate(((16, 12, 0.31, 0.11), (46, 14, 0.27, 0.095),
+                                             (80, 12, 0.18, 0.04))):
+    for i, ph in enumerate(np.linspace(125, 235, n)):
         phi = math.radians(jit(ph, 4))
         theta = math.radians(jit(th0, 4))
         side = math.sin(phi)
         grp = "BackL" if side > 0.3 else ("BackR" if side < -0.3 else "BackC")
-        pts, w, h, hint = grow_clump(theta, phi, jit(L0, 0.03), jit(0.065, 0.01), 0.014,
-                                     droop=0.55, out=0.4, flick=0.7,
-                                     flick_dir=(side * 1.0, 0.5, -0.6), min_clear=clear)
+        pts, w, h, hint = grow_clump(theta, phi, jit(L0, 0.03), jit(0.075, 0.01), 0.016,
+                                     droop=0.55, out=0.6, flick=0.85,
+                                     flick_dir=(side * 1.2, 0.8, -0.5), min_clear=jit(clear, 0.012),
+                                     wave=0.02, phase=rng.random() * 3)
         add_clump(pts, w, h, hint, grp, hue=(i + row) % 3 == 0)
 
-# coronilla despeinada (rígida a la cabeza)
-for i in range(18):
-    phi = (i / 18) * 2 * math.pi + rng.random() * 0.3
-    theta = math.radians(6 + rng.random() * 14)
-    pts, w, h, hint = grow_clump(theta, phi, jit(0.14, 0.02), jit(0.055, 0.008), 0.014,
-                                 droop=0.35, out=0.5, lift=0.15, flick=0.8, min_clear=0.06)
+# patillas: mechones que enmarcan la cara a los lados de los ojos
+for s in (1, -1):
+    for i, (ph, th, L) in enumerate(((64, 40, 0.24), (74, 46, 0.25), (84, 52, 0.24))):
+        pts, w, h, hint = grow_clump(math.radians(jit(th, 3)), math.radians(jit(ph, 3)) * s,
+                                     jit(L, 0.02), 0.075, 0.014, droop=1.0, out=0.05,
+                                     flick=0.6, flick_dir=(s * 0.6, 0.3, 0.4), min_clear=0.02,
+                                     wave=0.01, phase=rng.random() * 3, flick_start=0.75)
+        add_clump(pts, w, h, hint, "SideL" if s > 0 else "SideR", hue=i % 2)
+
+# coronilla esponjosa (rígida a la cabeza)
+for i in range(22):
+    phi = (i / 22) * 2 * math.pi + rng.random() * 0.3
+    theta = math.radians(4 + rng.random() * 18)
+    fd = (math.sin(phi) * 0.8, 0.9, math.cos(phi) * 0.8)
+    pts, w, h, hint = grow_clump(theta, phi, jit(0.17, 0.025), jit(0.08, 0.01), 0.018,
+                                 droop=0.5, out=0.5, lift=0.1, flick=0.7, flick_dir=fd,
+                                 min_clear=jit(0.105, 0.012), wave=0.015, phase=rng.random() * 3,
+                                 flick_start=0.7)
     add_clump(pts, w, h, hint, None, hue=i % 2)
+# mechones sueltos que rompen la silueta
+for i in range(16):
+    phi = rng.random() * 2 * math.pi
+    if math.cos(phi) > 0.75:
+        continue  # no taparle la cara
+    theta = math.radians(15 + rng.random() * 70)
+    fd = (math.sin(phi), 0.7 + rng.random(), math.cos(phi))
+    pts, w, h, hint = grow_clump(theta, phi, jit(0.13, 0.03), 0.024, 0.006, droop=0.5, out=0.8,
+                                 flick=1.3, flick_dir=fd, min_clear=jit(0.08, 0.02), wave=0.02,
+                                 phase=rng.random() * 3, flick_start=0.5)
+    add_clump(pts, w, h, hint, None, hue=i % 3 == 0)
 # ahoge
-for k, (phi, L) in enumerate(((0.5, 0.10), (2.8, 0.08))):
-    pts, w, h, hint = grow_clump(0.15, phi, L, 0.016, 0.006, droop=0.25, out=0.8, lift=0.5,
+for k, (phi, L) in enumerate(((0.5, 0.12), (2.8, 0.10))):
+    pts, w, h, hint = grow_clump(0.15, phi, L, 0.02, 0.006, droop=0.25, out=0.8, lift=0.5,
                                  flick=1.0, flick_dir=(math.sin(phi), 0.6, math.cos(phi)),
-                                 min_clear=0.04)
+                                 min_clear=0.09)
     add_clump(pts, w, h, hint, None, hue=k)
 
 # huesos de las cadenas de pelo + pesos
@@ -566,48 +613,48 @@ def on_hair(x, y, off=0.03):
     return p + n * off, n
 
 
-star = polygon_extrude(star_poly(5, 0.020, 0.010), 0.008, bevel=0.003, mat="Clip", mesh="Hair")
-o, n = on_hair(0.075, 0.905, 0.034)
+star = polygon_extrude(star_poly(5, 0.024, 0.012), 0.010, bevel=0.003, mat="Clip", mesh="Hair")
+o, n = on_hair(0.072, 0.885, 0.085)
 add(rigid(place(star, o, n, roll=math.radians(-12)), "Head"))
 for k in range(2):
     bar = polygon_extrude(rounded_rect_poly(0.038, 0.009, 0.0045), 0.006, bevel=0.002,
                           mat="Clip", mesh="Hair")
-    o, n = on_hair(-0.085, 0.905 - 0.016 * k, 0.034)
+    o, n = on_hair(-0.085, 0.885 - 0.018 * k, 0.085)
     add(rigid(place(bar, o, n, roll=math.radians(12)), "Head"))
 
 # ============================================================== audífonos
 for s in (1, -1):
-    cx = 0.212 * s
+    cx = 0.262 * s
     c = np.array([cx, 0.785, -0.005])
     ax = np.array([s, 0, 0.0])
-    cup = sweep([c - ax * 0.012, c + ax * 0.045], 0.072, 0.072, hint=(0, 1, 0), nseg=36,
+    cup = sweep([c - ax * 0.012, c + ax * 0.05], 0.084, 0.084, hint=(0, 1, 0), nseg=36,
                 mat="Phone", mesh="Accessories")
     add(rigid(cup, "Head"))
-    shell = ellipsoid(c + ax * 0.045, (0.02, 0.066, 0.066), 36, 16, mat="Phone",
+    shell = ellipsoid(c + ax * 0.05, (0.024, 0.078, 0.078), 36, 16, mat="Phone",
                       mesh="Accessories")
     add(rigid(shell, "Head"))
-    ring = sweep([c + ax * 0.058 + 0.044 * np.array([0, math.cos(a), math.sin(a)]) for a in
+    ring = sweep([c + ax * 0.068 + 0.052 * np.array([0, math.cos(a), math.sin(a)]) for a in
                   np.linspace(0, 2 * np.pi, 41)], 0.006, 0.006, hint=ax, nseg=8,
                  mat="PhoneLight", mesh="Accessories", cap_start=False, cap_end=False)
     add(rigid(ring, "Head"))
-    disc = ellipsoid(c + ax * 0.058, (0.006, 0.032, 0.032), 24, 10, mat="PhoneLight",
+    disc = ellipsoid(c + ax * 0.068, (0.007, 0.038, 0.038), 24, 10, mat="PhoneLight",
                      mesh="Accessories")
     add(rigid(disc, "Head"))
-    pad = sweep([c - ax * 0.028, c - ax * 0.008], 0.066, 0.066, hint=(0, 1, 0), nseg=36,
+    pad = sweep([c - ax * 0.07, c - ax * 0.008], 0.074, 0.074, hint=(0, 1, 0), nseg=36,
                 mat="Cushion", mesh="Accessories")
     add(rigid(pad, "Head"))
     # unión con la diadema
     yoke = sweep([c + np.array([0.012 * s, 0.06, 0]), c + np.array([0.008 * s, 0.10, 0])], 0.016,
                  0.012, hint=(s, 0, 0), nseg=12, mat="PhoneDark", mesh="Accessories")
     add(rigid(yoke, "Head"))
-arc = [np.array([0.222 * math.cos(a), 0.80 + 0.255 * math.sin(a), -0.01]) for a in
+arc = [np.array([0.272 * math.cos(a), 0.80 + 0.305 * math.sin(a), -0.01]) for a in
        np.linspace(math.radians(18), math.radians(162), 40)]
 band = sweep(arc, 0.022, 0.011, hint=[normalize(q - np.array([0, 0.8, -0.01])) for q in arc],
              nseg=14, mat="Phone", mesh="Accessories")
 add(rigid(band, "Head"))
 
 # ============================================================== blob rosa (mascota)
-BLOB_C = np.array([0, 1.055, 0.03])
+BLOB_C = np.array([0, 1.125, 0.03])
 BLOB_R = np.array([0.125, 0.072, 0.105])
 BLOB = EllipsoidSurface(BLOB_C, BLOB_R)
 bone("Blob", "Head", BLOB_C - np.array([0, 0.06, 0]))
@@ -638,15 +685,26 @@ add(blob_weights(BLOB.decal(bf, 0.12, 0.06, 0.0012, nu=10, nv=6, mat="BlobFace",
                             mesh="Accessories")))
 
 # ============================================================== corazones flotantes
-for k, (dx, dy, sc) in enumerate(((0.0, 0.0, 1.0), (0.045, 0.004, 0.95), (0.09, 0.006, 0.9))):
-    hp = polygon_extrude(heart_poly(40) * 0.04 * sc, 0.012, bevel=0.005, mat="Heart",
+for k, (dx, dy, sc) in enumerate(((0.0, 0.0, 1.0), (0.072, 0.004, 1.0), (0.144, 0.006, 1.0))):
+    roll = math.radians(-8 + 6 * k)
+    o = np.array([0.150 + dx, 0.690, 0.135 - dx * 0.75])
+    hp = polygon_extrude(heart_poly(40) * 0.07 * sc, 0.016, bevel=0.007, mat="Heart",
                          mesh="Accessories")
-    o = np.array([0.155 + dx, 0.705 + dy, 0.115 - dx * 0.9])
-    add(rigid(place(hp, o, (0.35, 0.0, 1.0), roll=math.radians(-8 + 6 * k)), "Head"))
+    add(rigid(place(hp, o, (0.35, 0.0, 1.0), roll=roll), "Head"))
+    shine = ellipsoid((-0.015, 0.010, 0.011), (0.0075, 0.005, 0.0025), 10, 6, mat="Shine",
+                      mesh="Accessories")
+    add(rigid(place(shine, o, (0.35, 0.0, 1.0), roll=roll), "Head"))
+
+# brillo blanco en las orejeras
+for s in (1, -1):
+    shine = ellipsoid((0, 0, 0), (0.003, 0.016, 0.008), 12, 8, mat="Shine", mesh="Accessories")
+    shine.transform(rot_x(math.radians(-35)))
+    shine.transform(trans((0.262 * s + 0.076 * s, 0.785 + 0.045, -0.005 + 0.035)))
+    add(rigid(shine, "Head"))
 
 # ============================================================== materiales
 MATERIALS = {
-    "Skin": dict(color="#ffe6d6", shade="#f2b3a6", outline=0.22, outline_color="#3a2230"),
+    "Skin": dict(color="#fbd2bd", shade="#ea9c8c", outline=0.32, outline_color="#3a2230"),
     "EyeWhite": dict(color="#ffffff", shade="#e8ecf8", tex="sclera", blend="cutout"),
     "Iris": dict(color="#ffffff", shade="#d8e4ff", tex="iris", blend="cutout",
                  emission="#202838"),
@@ -656,26 +714,27 @@ MATERIALS = {
     "MouthInner": dict(color="#9a3445", shade="#7a2232"),
     "NoseBandage": dict(color="#ffffff", shade="#d8f0f4", tex="nose_bandage", blend="cutout"),
     "CheekBandage": dict(color="#ffffff", shade="#eadfd6", tex="cheek_bandage", blend="cutout"),
-    "Hair": dict(color="#ffffff", shade="#8a7fb0", tex="hair", outline=0.28,
-                 outline_color="#0b0812", cull="off", rim="#3c2c80", rim_power=4.0),
+    "Hair": dict(color="#ffffff", shade="#8a7fb0", tex="hair", outline=0.42,
+                 outline_color="#07050c", cull="off", rim="#2a1f5c", rim_power=5.0),
     "Clip": dict(color="#54c8ff", shade="#2a8ed8", outline=0.15, outline_color="#0b2a48"),
-    "Hoodie": dict(color="#2a2733", shade="#15131c", outline=0.25, outline_color="#07060b",
+    "Hoodie": dict(color="#2a2733", shade="#15131c", outline=0.34, outline_color="#07060b",
                    rim="#3a2e78", rim_power=3.0),
     "Drawstring": dict(color="#8c86a8", shade="#5a5478"),
-    "Pants": dict(color="#24212d", shade="#121018", outline=0.25, outline_color="#07060b",
+    "Pants": dict(color="#24212d", shade="#121018", outline=0.34, outline_color="#07060b",
                   rim="#30285e", rim_power=3.0),
     "Shoe": dict(color="#2c2838", shade="#16131e", outline=0.22, outline_color="#07060b"),
     "Sole": dict(color="#6e6884", shade="#46405a", outline=0.15, outline_color="#07060b"),
-    "Phone": dict(color="#2f7dff", shade="#1a44b8", outline=0.25, outline_color="#0a1636",
+    "Phone": dict(color="#2f7dff", shade="#1a44b8", outline=0.36, outline_color="#0a1636",
                   rim="#9fd4ff", rim_power=2.5),
     "PhoneDark": dict(color="#1f3c9a", shade="#14286a", outline=0.2, outline_color="#0a1636"),
     "PhoneLight": dict(color="#7fd0ff", shade="#4aa2f0", emission="#2a6aa0", outline=0.12,
                        outline_color="#0a1636"),
     "Cushion": dict(color="#1d2a66", shade="#111a44", outline=0.2, outline_color="#0a1636"),
-    "Blob": dict(color="#ff9fc3", shade="#e56e9a", outline=0.25, outline_color="#3c1426"),
-    "BlobFeet": dict(color="#ef3352", shade="#b81c38", outline=0.22, outline_color="#3c1426"),
+    "Blob": dict(color="#ff9fc3", shade="#e56e9a", outline=0.36, outline_color="#3c1426"),
+    "BlobFeet": dict(color="#ef3352", shade="#b81c38", outline=0.32, outline_color="#3c1426"),
     "BlobFace": dict(color="#ffffff", shade="#ffe8f0", tex="blob_face", blend="cutout"),
-    "Heart": dict(color="#ff3550", shade="#c81c3a", outline=0.25, outline_color="#2bb3c8"),
+    "Shine": dict(color="#ffffff", shade="#f0f4ff"),
+    "Heart": dict(color="#ff3550", shade="#d42640", outline=0.22, outline_color="#2bb3c8"),
 }
 IMAGES = {"sclera": TX.sclera(), "iris": TX.iris(), "hair": TX.hair(), "blush": TX.blush(),
           "nose_bandage": TX.nose_bandage(), "cheek_bandage": TX.cheek_bandage(),
@@ -770,6 +829,8 @@ def build_chair():
         w = c0 + d * 0.26 + np.array([0, -0.065, 0])
         C.append(sweep([w - np.array([0.015, 0, 0]) * 1, w + np.array([0.015, 0, 0])], 0.028,
                        0.028, hint=(0, 1, 0), nseg=16, mat="ChairWheel", mesh="Chair"))
+    for p in C:  # a escala del cuerpo chibi
+        p.pos *= 0.86
     return C
 
 
@@ -782,8 +843,51 @@ CHAIR_MATS = {
 }
 
 
+# ============================================================== proporciones chibi
+BODY_SCALE, HEAD_SCALE = np.array([1.0, 0.68, 0.95]), 1.40
+NECK_PIVOT = np.array([0, 0.615, 0])
+
+
+def head_bone_set():
+    names = {"Head"}
+    changed = True
+    while changed:
+        changed = False
+        for b in BONES:
+            if b["parent"] in names and b["name"] not in names:
+                names.add(b["name"]); changed = True
+    return names
+
+
+def apply_proportions():
+    """Cabeza enorme y cuerpo pequeño: escala la cabeza (y todo lo que cuelga de ella)
+    alrededor del cuello y encoge el cuerpo hacia el suelo."""
+    hs = head_bone_set()
+    hidx = np.array([bidx(n) for n in sorted(hs)])
+    new_pivot = NECK_PIVOT * BODY_SCALE
+
+    def tf(p, is_head):
+        return np.where(is_head[:, None], new_pivot + (p - NECK_PIVOT) * HEAD_SCALE, p * BODY_SCALE)
+
+    for p in PARTS:
+        w_head = (np.isin(p.joints, hidx) * p.weights).sum(1)
+        is_head = w_head > 0.5
+        p.pos = tf(p.pos, is_head)
+        sc = np.where(is_head[:, None], HEAD_SCALE, BODY_SCALE[None, :])
+        for k in p.morph:
+            p.morph[k] = p.morph[k] * sc
+    for b in BONES:
+        b["pos"] = tf(b["pos"][None], np.array([b["name"] in hs]))[0]
+    for c in COLLIDERS:
+        k = HEAD_SCALE if c["bone"] in hs else BODY_SCALE
+        c["spheres"] = [(np.array(o) * k, r * float(np.mean(k))) for o, r in c["spheres"]]
+    for sp in SPRINGS:
+        sp["radius"] *= HEAD_SCALE
+
+
 def main(thumbnail_path=None):
     os.makedirs(OUT, exist_ok=True)
+    apply_proportions()
     thumb = None
     if thumbnail_path and os.path.exists(thumbnail_path):
         thumb = Image.open(thumbnail_path).convert("RGBA").resize((512, 512))

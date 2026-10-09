@@ -279,7 +279,7 @@ def polygon_extrude(poly, depth, bevel=0.0, nbevel=3, mat="Default", mesh="Body"
             L = np.linalg.norm(d)
             q2 = q - d / max(L, 1e-9) * min(shrink, L * 0.9)
             P.append((q2[0], q2[1], z)); U.append((k / n, (z / depth) + 0.5))
-    faces = list(grid_faces(len(zs) - 1, n))
+    faces = [tuple(f[::-1]) for f in grid_faces(len(zs) - 1, n)]  # laterales hacia fuera
     W = n + 1
     P, U = list(P), list(U)
     c0 = len(P); P.append((cen[0], cen[1], zs[0][0])); U.append((0.5, 0))
@@ -289,13 +289,7 @@ def polygon_extrude(poly, depth, bevel=0.0, nbevel=3, mat="Default", mesh="Body"
         base = (len(zs) - 1) * W
         faces.append((c1, base + k, base + k + 1))
     part = Part(np.array(P), np.array(faces), np.array(U), mat, mesh)
-    # orientar: normal de las tapas
-    c = part.pos[part.idx]
-    fn = np.cross(c[:, 1] - c[:, 0], c[:, 2] - c[:, 0])
-    cc = c.mean(1) - np.array([cen[0], cen[1], 0])
-    if (fn * cc).sum() < 0:
-        part.flip_faces()
-    return part
+    return orient_by_volume(part, (cen[0], cen[1], 0))
 
 
 def heart_poly(n=48):
