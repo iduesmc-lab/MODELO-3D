@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chibi Gamer VTuber</title>
+<style>
+  :root { --bg: #34363f; --panel: rgba(20, 18, 30, 0.86); --text: #ece9f6; --muted: #a59fc0;
+          --accent: #5aa8ff; --accent2: #ff7fa8; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg);
+               font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); }
+  body.transparent { background: transparent; }
+  canvas#view { display: block; width: 100vw; height: 100vh; }
+  #panel { position: fixed; top: 12px; right: 12px; width: 260px; max-height: calc(100vh - 24px);
+           overflow: auto; background: var(--panel); border-radius: 14px; padding: 14px;
+           box-shadow: 0 8px 30px rgba(0,0,0,.35); font-size: 13px; }
+  #panel h1 { font-size: 16px; margin: 0 0 4px; }
+  #panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+              margin: 14px 0 6px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { background: #2b2840; color: var(--text); border: 1px solid #47426a; border-radius: 8px;
+           padding: 6px 9px; font-size: 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); border-color: var(--accent); color: #0d1020; }
+  button.big { width: 100%; padding: 9px; font-size: 13px; font-weight: 600; }
+  #status { color: var(--muted); font-size: 12px; margin-top: 6px; min-height: 16px; }
+  #cam { position: fixed; left: 12px; bottom: 12px; width: 160px; border-radius: 10px;
+         transform: scaleX(-1); display: none; opacity: .85; }
+  .hint { color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 10px; }
+  body.noui #panel, body.noui #cam { display: none !important; }
+  #drop { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+          background: rgba(90,168,255,.15); border: 3px dashed var(--accent); font-size: 20px; }
+  @media (max-width: 600px) { #panel { width: auto; left: 12px; max-height: 45vh; } }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "./vendor/three/build/three.module.min.js",
+    "three/addons/": "./vendor/three/examples/jsm/",
+    "@pixiv/three-vrm": "./vendor/three-vrm/three-vrm.module.min.js"
+} }
+</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="cam" playsinline muted></video>
+<div id="drop">Suelta un archivo .vrm</div>
+<div id="panel">
+  <h1>Chibi Gamer</h1>
+  <div id="status">Cargando modelo…</div>
+
+  <h2>Seguimiento</h2>
+  <button id="btnCam" class="big">📷 Activar cámara</button>
+  <div class="row" style="margin-top:6px">
+    <button id="btnMic">🎤 Micrófono</button>
+    <button id="btnMirror" class="on">Espejo</button>
+  </div>
+
+  <h2>Expresión</h2>
+  <div class="row" id="exprs"></div>
+
+  <h2>Pose</h2>
+  <div class="row">
+    <button id="btnSit" class="on">Sentado</button>
+    <button id="btnStand">De pie</button>
+    <button id="btnChair" class="on">Silla</button>
+  </div>
+
+  <h2>Fondo</h2>
+  <div class="row" id="bgs"></div>
+
+  <div class="hint">
+    <b>H</b> oculta/muestra este panel · <b>1–6</b> expresiones · arrastra para girar la cámara,
+    rueda para zoom.<br>Para OBS: usa fondo verde + filtro “Chroma Key”, o
+    abre la página con <code>?bg=transparent&amp;ui=0</code> como fuente de navegador.
+    Puedes soltar aquí cualquier otro archivo <code>.vrm</code>.
+  </div>
+</div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
